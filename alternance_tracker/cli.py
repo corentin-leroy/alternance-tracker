@@ -9,6 +9,7 @@ from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
+from rich.text import Text
 
 # Force UTF-8 sur Windows (les descriptions d'offres contiennent des emojis et
 # caractères hors cp1252 que le renderer legacy Windows ne peut pas encoder)
@@ -19,6 +20,7 @@ from .config import DB_PATH
 from .pipeline.deduplicator import deduplicate
 from .pipeline.filter import apply_filter
 from .scrapers.francetravail import FranceTravailScraper
+from .scrapers.hellowork import HelloworkScraper
 from .scrapers.labanealternance import LaBonneAlternanceScraper
 from .scrapers.wttj import WttjScraper
 from .storage.db import Database
@@ -37,7 +39,7 @@ def _get_db() -> Database:
 
 def cmd_fetch(args):
     db = _get_db()
-    scrapers = [LaBonneAlternanceScraper(), WttjScraper()]
+    scrapers = [LaBonneAlternanceScraper(), HelloworkScraper(), WttjScraper()]
     if args.ft:
         scrapers.append(FranceTravailScraper())
 
@@ -148,25 +150,23 @@ def _render_offer(offer: Offer):
         badge = ""
 
     date_str = offer.posted_at.strftime("%d/%m/%Y") if offer.posted_at else "date inconnue"
-    salary_str = f" · {escape(offer.salary)}" if offer.salary else ""
-    meta = f"[dim]{escape(offer.source)} · {date_str}{salary_str}[/dim]"
+    salary_str = f" · {offer.salary}" if offer.salary else ""
 
+    # Utiliser un objet Text pour que Rich n'interprète jamais le contenu
+    # utilisateur comme du markup, quel que soit son contenu.
+    body = Text()
+    body.append(f"{offer.source} · {date_str}{salary_str}", style="dim")
     if offer.url:
-        url_display = escape(offer.url[:90]) + ("…" if len(offer.url) > 90 else "")
-        url_line = f"\n[dim][link={offer.url}]{url_display}[/link][/dim]"
-    else:
-        url_line = ""
-
-    desc = escape(offer.description[:600])
+        url_display = offer.url[:90] + ("…" if len(offer.url) > 90 else "")
+        body.append(f"\n{url_display}", style=f"dim link {offer.url}")
+    body.append("\n\n")
+    desc = offer.description[:600]
     if len(offer.description) > 600:
         desc += "…"
-
-    suspicion_block = ""
+    body.append(desc)
     if offer.suspicion_reasons:
-        joined = escape(" · ".join(offer.suspicion_reasons[:3]))
-        suspicion_block = f"\n[dim yellow]Raisons : {joined}[/dim]"
-
-    body = f"{meta}{url_line}\n\n{desc}{suspicion_block}"
+        joined = " · ".join(offer.suspicion_reasons[:3])
+        body.append(f"\nRaisons : {joined}", style="dim yellow")
 
     title_line = (
         f"[bold]{escape(offer.title)}[/bold]  "
