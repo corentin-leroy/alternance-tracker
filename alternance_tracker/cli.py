@@ -1,22 +1,30 @@
 import argparse
+import sys
 import webbrowser
 from datetime import datetime
 
 from rich import box
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.prompt import Prompt
 from rich.table import Table
+
+# Force UTF-8 sur Windows (les descriptions d'offres contiennent des emojis et
+# caractères hors cp1252 que le renderer legacy Windows ne peut pas encoder)
+if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from .config import DB_PATH
 from .pipeline.deduplicator import deduplicate
 from .pipeline.filter import apply_filter
 from .scrapers.francetravail import FranceTravailScraper
 from .scrapers.labanealternance import LaBonneAlternanceScraper
+from .scrapers.wttj import WttjScraper
 from .storage.db import Database
 from .storage.models import Application, Offer, OfferStatus
 
-console = Console()
+console = Console(legacy_windows=False)
 
 
 def _get_db() -> Database:
@@ -29,7 +37,7 @@ def _get_db() -> Database:
 
 def cmd_fetch(args):
     db = _get_db()
-    scrapers = [LaBonneAlternanceScraper()]
+    scrapers = [LaBonneAlternanceScraper(), WttjScraper()]
     if args.ft:
         scrapers.append(FranceTravailScraper())
 
@@ -140,26 +148,31 @@ def _render_offer(offer: Offer):
         badge = ""
 
     date_str = offer.posted_at.strftime("%d/%m/%Y") if offer.posted_at else "date inconnue"
-    salary_str = f" · {offer.salary}" if offer.salary else ""
-    meta = f"[dim]{offer.source} · {date_str}{salary_str}[/dim]"
+    salary_str = f" · {escape(offer.salary)}" if offer.salary else ""
+    meta = f"[dim]{escape(offer.source)} · {date_str}{salary_str}[/dim]"
 
-    url_line = (
-        f"\n[dim link={offer.url}]{offer.url[:90]}{'…' if len(offer.url) > 90 else ''}[/dim]"
-        if offer.url else ""
-    )
+    if offer.url:
+        url_display = escape(offer.url[:90]) + ("…" if len(offer.url) > 90 else "")
+        url_line = f"\n[dim][link={offer.url}]{url_display}[/link][/dim]"
+    else:
+        url_line = ""
 
-    desc = offer.description[:600]
+    desc = escape(offer.description[:600])
     if len(offer.description) > 600:
         desc += "…"
 
     suspicion_block = ""
     if offer.suspicion_reasons:
-        joined = " · ".join(offer.suspicion_reasons[:3])
-        suspicion_block = f"\n[yellow dim]Raisons : {joined}[/yellow dim]"
+        joined = escape(" · ".join(offer.suspicion_reasons[:3]))
+        suspicion_block = f"\n[dim yellow]Raisons : {joined}[/dim]"
 
     body = f"{meta}{url_line}\n\n{desc}{suspicion_block}"
 
-    title_line = f"[bold]{offer.title}[/bold]  [dim]{offer.company} · {offer.location}[/dim]  {badge}"
+    title_line = (
+        f"[bold]{escape(offer.title)}[/bold]  "
+        f"[dim]{escape(offer.company)} · {escape(offer.location)}[/dim]  "
+        f"{badge}"
+    )
     console.print(Panel(body, title=title_line, title_align="left", border_style=border))
 
 

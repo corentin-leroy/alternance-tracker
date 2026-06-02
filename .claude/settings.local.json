@@ -5,7 +5,9 @@
       "PowerShell(py *)",
       "WebFetch(domain:labonnealternance.apprentissage.beta.gouv.fr)",
       "WebFetch(domain:api.apprentissage.beta.gouv.fr)",
-      "WebFetch(domain:raw.githubusercontent.com)"
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:www.welcometothejungle.com)",
+      "WebFetch(domain:api.welcometothejungle.com)"
     ]
   }
 }

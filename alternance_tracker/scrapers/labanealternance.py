@@ -10,7 +10,7 @@ from .base import BaseScraper
 
 load_dotenv()
 
-_SEARCH_URL = "https://api.apprentissage.beta.gouv.fr/job/v1/search"
+_SEARCH_URL = "https://api.apprentissage.beta.gouv.fr/api/job/v1/search"
 
 
 class LaBonneAlternanceScraper(BaseScraper):
@@ -34,7 +34,14 @@ class LaBonneAlternanceScraper(BaseScraper):
         }
         resp = requests.get(_SEARCH_URL, headers=headers, params=params, timeout=20)
         resp.raise_for_status()
-        data = resp.json()
+        try:
+            data = resp.json()
+        except Exception as exc:
+            raise ValueError(
+                f"LBA : réponse non-JSON (status {resp.status_code}, "
+                f"content-type={resp.headers.get('content-type', '?')}). "
+                f"Body : {resp.text[:300]!r}"
+            ) from exc
 
         offers: list[Offer] = []
         for item in data.get("jobs") or []:
