@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Command *)",
+      "PowerShell(py *)",
+      "WebFetch(domain:labonnealternance.apprentissage.beta.gouv.fr)",
+      "WebFetch(domain:api.apprentissage.beta.gouv.fr)",
+      "WebFetch(domain:raw.githubusercontent.com)"
+    ]
+  }
+}
