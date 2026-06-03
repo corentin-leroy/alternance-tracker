@@ -1,3 +1,5 @@
+import json
+import time
 from typing import Optional
 
 import requests
@@ -46,6 +48,8 @@ class HelloworkScraper(BaseScraper):
                 for offer in page_offers:
                     if offer.id not in seen_ids:
                         seen_ids.add(offer.id)
+                        offer.description = self._fetch_description(offer.url)
+                        time.sleep(0.5)
                         offers.append(offer)
                 if len(page_offers) < _RESULTS_PER_PAGE:
                     break  # dernière page
@@ -92,7 +96,7 @@ class HelloworkScraper(BaseScraper):
                 title=title,
                 company=company,
                 location=location,
-                description="",  # non disponible sur la page de recherche
+                description="",
                 url=url,
                 source=self.name,
                 posted_at=None,
@@ -100,3 +104,30 @@ class HelloworkScraper(BaseScraper):
             )
         except Exception:
             return None
+
+    def _fetch_description(self, url: str) -> str:
+        if not url:
+            return ""
+        try:
+            resp = requests.get(url, headers=_HEADERS, timeout=15)
+            resp.raise_for_status()
+            soup = BeautifulSoup(resp.text, "html.parser")
+
+            # Description complète dans le bloc JSON-LD de la page
+            for script in soup.find_all("script", type="application/ld+json"):
+                try:
+                    data = json.loads(script.string or "")
+                    if isinstance(data, dict) and "description" in data:
+                        desc_soup = BeautifulSoup(data["description"], "html.parser")
+                        return desc_soup.get_text(separator="\n", strip=True)
+                except Exception:
+                    continue
+
+            # Fallback : div Stimulus qui contient le texte visible
+            div = soup.find("div", attrs={"data-controller": "truncate-text"})
+            if div:
+                return div.get_text(separator="\n", strip=True)
+
+            return ""
+        except Exception:
+            return ""

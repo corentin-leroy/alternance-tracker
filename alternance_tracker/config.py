@@ -1,4 +1,9 @@
+import os
 from pathlib import Path
+
+from dotenv import load_dotenv
+
+load_dotenv()
 
 BASE_DIR = Path(__file__).parent.parent
 DATA_DIR = BASE_DIR / "data"
@@ -16,12 +21,11 @@ SEARCH = {
         "web developer",
         "full stack developer",
     ],
-    "location_label": "Grenoble",
-    "latitude": 45.1885,
-    "longitude": 5.7245,
-    "insee_code": "38185",
-    "department": "38",
-    "radius_km": 30,
+    "location_label": os.getenv("SEARCH_CITY", "Grenoble"),
+    "latitude": float(os.getenv("SEARCH_LATITUDE", "45.1885")),
+    "longitude": float(os.getenv("SEARCH_LONGITUDE", "5.7245")),
+    "department": os.getenv("SEARCH_DEPARTMENT", "38"),
+    "radius_km": int(os.getenv("SEARCH_RADIUS_KM", "30")),
     "rome_codes": ["M1805", "M1804", "M1806"],
 }
 

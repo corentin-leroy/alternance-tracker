@@ -61,12 +61,18 @@ class Database:
             """)
 
     def upsert_offer(self, offer: Offer) -> bool:
-        """Insert offer if ID is new. Returns True if actually inserted."""
+        """Insert offer if ID is new. Returns True if actually inserted.
+        If the offer already exists with an empty description, updates it."""
         with self._conn() as conn:
             existing = conn.execute(
-                "SELECT id FROM offers WHERE id = ?", (offer.id,)
+                "SELECT id, description FROM offers WHERE id = ?", (offer.id,)
             ).fetchone()
             if existing:
+                if not existing["description"] and offer.description:
+                    conn.execute(
+                        "UPDATE offers SET description = ? WHERE id = ?",
+                        (offer.description, offer.id),
+                    )
                 return False
             conn.execute(
                 """INSERT INTO offers

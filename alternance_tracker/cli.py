@@ -1,6 +1,9 @@
 import argparse
+import os
 import sys
 import webbrowser
+
+import requests
 from datetime import datetime
 
 from rich import box
@@ -17,6 +20,7 @@ if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
 from .config import DB_PATH
+from .init_wizard import run as run_init_wizard
 from .pipeline.deduplicator import deduplicate
 from .pipeline.filter import apply_filter
 from .scrapers.francetravail import FranceTravailScraper
@@ -40,7 +44,7 @@ def _get_db() -> Database:
 def cmd_fetch(args):
     db = _get_db()
     scrapers = [LaBonneAlternanceScraper(), HelloworkScraper(), WttjScraper()]
-    if args.ft:
+    if args.ft or (os.getenv("FT_CLIENT_ID") and os.getenv("FT_CLIENT_SECRET")):
         scrapers.append(FranceTravailScraper())
 
     all_offers: list[Offer] = []
@@ -50,6 +54,8 @@ def cmd_fetch(args):
             offers = scraper.fetch()
             console.print(f"  [green]{len(offers)} offres récupérées[/green]")
             all_offers.extend(offers)
+        except requests.exceptions.RequestException as e:
+            console.print(f"  [red]Erreur réseau : {e}[/red]")
         except EnvironmentError as e:
             console.print(f"  [yellow]Configuration manquante : {e}[/yellow]")
         except Exception as e:
@@ -221,6 +227,8 @@ def main():
     )
     sub = parser.add_subparsers(dest="command", metavar="COMMANDE")
 
+    sub.add_parser("init", help="Configurer le .env interactivement (clés API, ville, rayon)")
+
     p_fetch = sub.add_parser("fetch", help="Récupérer les nouvelles offres")
     p_fetch.add_argument(
         "--ft",
@@ -245,7 +253,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "fetch":
+    if args.command == "init":
+        run_init_wizard()
+    elif args.command == "fetch":
         cmd_fetch(args)
     elif args.command == "review":
         cmd_review(args)

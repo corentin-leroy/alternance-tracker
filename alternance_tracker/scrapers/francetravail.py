@@ -13,8 +13,6 @@ load_dotenv()
 
 _TOKEN_URL = "https://entreprise.francetravail.fr/connexion/oauth2/access_token"
 _SEARCH_URL = "https://api.francetravail.io/partenaire/offresdemploi/v2/offres/search"
-# E1 = apprentissage, E2 = contrat de professionnalisation
-_CONTRACT_TYPES = ("E1", "E2")
 
 
 class FranceTravailScraper(BaseScraper):
@@ -31,10 +29,7 @@ class FranceTravailScraper(BaseScraper):
                 "et renseigne tes credentials France Travail (francetravail.io)."
             )
         token = self._get_token()
-        offers: list[Offer] = []
-        for contract_type in _CONTRACT_TYPES:
-            offers.extend(self._fetch_contract(token, contract_type))
-        return offers
+        return self._fetch_offers(token)
 
     def _get_token(self) -> str:
         resp = requests.post(
@@ -51,19 +46,21 @@ class FranceTravailScraper(BaseScraper):
         resp.raise_for_status()
         return resp.json()["access_token"]
 
-    def _fetch_contract(self, token: str, contract_type: str) -> list[Offer]:
+    def _fetch_offers(self, token: str) -> list[Offer]:
         headers = {"Authorization": f"Bearer {token}"}
         # France Travail accepte jusqu'à 150 résultats par appel (range 0-149)
         params = {
-            "motsCles": " OR ".join(SEARCH["keywords"][:4]),
+            "motsCles": "développeur alternance",
             "departement": SEARCH["department"],
-            "typeContrat": contract_type,
             "range": "0-149",
         }
         resp = requests.get(_SEARCH_URL, headers=headers, params=params, timeout=15)
         if resp.status_code == 204:
             return []
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(
+                f"France Travail API {resp.status_code} : {resp.text[:400]}"
+            )
         return [self._to_offer(item) for item in resp.json().get("resultats", [])]
 
     def _to_offer(self, item: dict) -> Offer:
