@@ -9,7 +9,7 @@ permet de construire un schéma directement depuis une dataclass
 """
 
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -36,9 +36,15 @@ class OfferOut(BaseModel):
 
 
 class StatusUpdate(BaseModel):
-    """Corps de PATCH /offers/{id}/status."""
+    """Corps de PATCH /offers/{id}/status.
 
-    status: OfferStatus
+    On limite aux statuts de "revue" : new (annuler), seen, skipped. Le statut
+    ``applied`` est posé uniquement via POST /apply ; ``rejected`` n'est pas
+    encore exposé. Pydantic renverra automatiquement une erreur 422 si une autre
+    valeur est envoyée.
+    """
+
+    status: Literal["new", "seen", "skipped"]
 
 
 class ApplyRequest(BaseModel):
@@ -56,6 +62,9 @@ class ApplicationOut(BaseModel):
     notes: str
     response: Optional[str]
     follow_up_at: Optional[datetime]
+    # Issus de la jointure avec l'offre ; None si l'offre n'existe plus.
+    offer_title: Optional[str] = None
+    offer_company: Optional[str] = None
 
 
 class StatsOut(BaseModel):

@@ -6,7 +6,7 @@ métier que la CLI.
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from ...storage.db import Database
 from ...storage.models import Application, OfferStatus
@@ -14,6 +14,12 @@ from ..deps import get_db
 from ..schemas import ApplyRequest, OfferOut, StatusUpdate
 
 router = APIRouter(prefix="/offers", tags=["offers"])
+
+
+def _require_offer(db: Database, offer_id: str):
+    """Renvoie une erreur 404 propre si l'offre n'existe pas."""
+    if db.get_offer(offer_id) is None:
+        raise HTTPException(status_code=404, detail="Offre introuvable")
 
 
 @router.get("", response_model=list[OfferOut])
@@ -38,7 +44,8 @@ def update_offer_status(
     db: Database = Depends(get_db),
 ):
     """Change le statut d'une offre (ex: la marquer ``seen`` ou ``skipped``)."""
-    db.update_status(offer_id, body.status)
+    _require_offer(db, offer_id)
+    db.update_status(offer_id, OfferStatus(body.status))
     return body
 
 
@@ -49,5 +56,6 @@ def apply_to_offer(
     db: Database = Depends(get_db),
 ):
     """Enregistre une candidature et passe l'offre au statut ``applied``."""
+    _require_offer(db, offer_id)
     db.add_application(Application(offer_id=offer_id, notes=body.notes))
     return {"offer_id": offer_id, "status": OfferStatus.APPLIED.value}

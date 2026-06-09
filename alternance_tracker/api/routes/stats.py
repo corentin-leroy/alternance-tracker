@@ -17,5 +17,5 @@ def get_stats(db: Database = Depends(get_db)):
 
 @router.get("/applications", response_model=list[ApplicationOut])
 def list_applications(db: Database = Depends(get_db)):
-    """Historique des candidatures, plus récentes d'abord."""
-    return db.get_applications()
+    """Historique des candidatures (avec titre de l'offre), plus récentes d'abord."""
+    return db.get_applications_with_offer()

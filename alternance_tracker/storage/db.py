@@ -117,6 +117,14 @@ class Database:
             rows = conn.execute(query, params).fetchall()
         return [self._row_to_offer(r) for r in rows]
 
+    def get_offer(self, offer_id: str) -> Optional[Offer]:
+        """Retourne une offre par son id, ou None si elle n'existe pas."""
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT * FROM offers WHERE id = ?", (offer_id,)
+            ).fetchone()
+        return self._row_to_offer(row) if row else None
+
     def update_status(self, offer_id: str, status: OfferStatus):
         with self._conn() as conn:
             conn.execute(
@@ -154,6 +162,35 @@ class Database:
                 response=r["response"],
                 follow_up_at=datetime.fromisoformat(r["follow_up_at"]) if r["follow_up_at"] else None,
             )
+            for r in rows
+        ]
+
+    def get_applications_with_offer(self) -> list[dict]:
+        """Comme get_applications, mais joint le titre et l'entreprise de l'offre.
+
+        LEFT JOIN : si l'offre liée a disparu, offer_title/offer_company valent
+        None plutôt que d'exclure la candidature.
+        """
+        with self._conn() as conn:
+            rows = conn.execute(
+                """SELECT a.*, o.title AS offer_title, o.company AS offer_company
+                   FROM applications a
+                   LEFT JOIN offers o ON o.id = a.offer_id
+                   ORDER BY a.applied_at DESC"""
+            ).fetchall()
+        return [
+            {
+                "id": r["id"],
+                "offer_id": r["offer_id"],
+                "applied_at": datetime.fromisoformat(r["applied_at"]),
+                "notes": r["notes"] or "",
+                "response": r["response"],
+                "follow_up_at": datetime.fromisoformat(r["follow_up_at"])
+                if r["follow_up_at"]
+                else None,
+                "offer_title": r["offer_title"],
+                "offer_company": r["offer_company"],
+            }
             for r in rows
         ]
 

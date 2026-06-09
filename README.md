@@ -1,8 +1,12 @@
 # Alternance Tracker
 
-Agrégateur CLI Python pour la recherche d'alternance en développement web/application.
+Agrégateur Python pour la recherche d'alternance en développement web/application.
 Consolide les offres de plusieurs plateformes, élimine les doublons, détecte les
 pièges école/CFA et garde un historique complet de tes candidatures — le tout en local.
+
+Utilisable de deux façons : en **ligne de commande** (CLI `rich`) ou via une
+**interface web locale** (API FastAPI + frontend React). Les deux partagent
+exactement la même logique métier et la même base de données.
 
 ## Pourquoi ce projet ?
 
@@ -24,12 +28,14 @@ Ce projet résout ces quatre problèmes avec un seul outil en ligne de commande.
 - **Historique persistant** : base SQLite locale — les offres déjà vues ne remontent plus
 - **Suivi des candidatures** : enregistre la date, les notes et le statut de chaque candidature
 - **CLI rich** : interface terminal avec mise en forme, navigation offre par offre et actions directes
+- **Interface web locale** : API REST FastAPI + frontend React (liste filtrable, actions Postuler/Ignorer, récupération, statistiques)
 
 ---
 
 ## Prérequis
 
 - Python 3.10+
+- Node.js 18+ (uniquement pour l'interface web)
 - Clés API pour les sources qui le nécessitent (voir [Configuration](#configuration))
 
 ---
@@ -41,6 +47,14 @@ git clone <url-du-repo>
 cd alternance-tracker
 pip install -e .
 python -m playwright install chromium
+```
+
+Pour utiliser l'**interface web**, installe en plus les dépendances optionnelles
+Python et les paquets npm du frontend :
+
+```bash
+pip install -e ".[web]"          # FastAPI + uvicorn
+npm --prefix frontend install    # React + Vite
 ```
 
 ---
@@ -164,6 +178,50 @@ Candidatures totales : 7
 
 ---
 
+## Interface web
+
+Une interface web locale offre les mêmes fonctionnalités que la CLI dans le
+navigateur. Elle se compose d'un **backend FastAPI** (qui expose la logique
+métier en API REST) et d'un **frontend React**. Tout tourne en local, sans
+déploiement ni authentification.
+
+### Lancement
+
+Deux serveurs, dans deux terminaux :
+
+```bash
+# Terminal 1 — backend (port 8000)
+uvicorn alternance_tracker.api.main:app --reload
+
+# Terminal 2 — frontend (port 5173)
+npm --prefix frontend run dev
+```
+
+Puis ouvre **http://localhost:5173**. Le frontend redirige automatiquement les
+appels `/api/*` vers le backend (proxy Vite).
+
+> Documentation interactive de l'API : **http://localhost:8000/docs** — permet de
+> tester chaque endpoint directement, sans frontend.
+
+### Écrans
+
+- **Offres** : liste filtrable (par statut, avec ou sans les offres suspectes),
+  actions Postuler / Ignorer (avec annulation), et bouton de récupération.
+- **Stats** : compteurs par statut et par source, et historique des candidatures.
+
+### Endpoints
+
+| Méthode | Endpoint | Rôle |
+|---|---|---|
+| `GET` | `/api/offers?status=&include_suspicious=` | Lister les offres |
+| `PATCH` | `/api/offers/{id}/status` | Changer le statut (`new`/`seen`/`skipped`) |
+| `POST` | `/api/offers/{id}/apply` | Enregistrer une candidature |
+| `POST` | `/api/fetch` | Récupérer de nouvelles offres (lent) |
+| `GET` | `/api/stats` | Statistiques agrégées |
+| `GET` | `/api/applications` | Historique des candidatures |
+
+---
+
 ## Pipeline de traitement
 
 ### Déduplication
@@ -210,11 +268,24 @@ alternance-tracker/
 │   ├── storage/
 │   │   ├── models.py             # Dataclasses Offer, Application, OfferStatus
 │   │   └── db.py                 # SQLite stdlib — upsert, query, stats
+│   ├── api/                      # Interface web — backend FastAPI
+│   │   ├── main.py               # App FastAPI, CORS, montage des routes
+│   │   ├── schemas.py            # Modèles Pydantic (contrat HTTP)
+│   │   ├── deps.py               # Injection de la base de données
+│   │   └── routes/               # offers, fetch, stats
 │   ├── config.py                 # Mots-clés, coordonnées Grenoble, seuils
 │   └── cli.py                    # Commandes fetch / review / stats (rich)
+├── frontend/                     # Interface web — frontend React (Vite)
+│   ├── src/
+│   │   ├── App.jsx               # Navigation entre écrans
+│   │   ├── api/client.js         # Appels vers l'API
+│   │   └── components/           # OffersPage, OfferCard, StatsPage
+│   ├── vite.config.js            # Serveur de dev + proxy /api
+│   └── package.json
 ├── tests/
 │   ├── test_deduplicator.py
-│   └── test_filter.py
+│   ├── test_filter.py
+│   └── test_api.py               # Tests des routes FastAPI (TestClient)
 ├── data/
 │   └── tracker.db                # Base SQLite locale (gitignored)
 ├── pyproject.toml
@@ -233,6 +304,8 @@ alternance-tracker/
 | Automatisation navigateur | Playwright (Chromium headless) |
 | Fuzzy matching | rapidfuzz |
 | Interface terminal | rich |
+| API web | FastAPI + uvicorn |
+| Frontend web | React 19 + Vite |
 | Stockage | SQLite (stdlib) |
 | Variables d'env | python-dotenv |
 
@@ -241,11 +314,13 @@ alternance-tracker/
 ## Tests
 
 ```bash
+pip install -e ".[dev]"   # pytest + httpx (la première fois)
 pytest
 ```
 
-Les tests couvrent le filtre de suspicion (`tests/test_filter.py`) et le
-déduplicateur (`tests/test_deduplicator.py`).
+Les tests couvrent le filtre de suspicion (`tests/test_filter.py`), le
+déduplicateur (`tests/test_deduplicator.py`) et les routes de l'API web
+(`tests/test_api.py`, via `TestClient` sur une base temporaire).
 
 ---
 
@@ -264,6 +339,9 @@ déduplicateur (`tests/test_deduplicator.py`).
 
 Ne commite **jamais** ton fichier `.env` — il est listé dans `.gitignore`.
 Le fichier `.env.example` ne doit contenir que des valeurs fictives.
+
+L'interface web n'a pas d'authentification : elle est prévue pour un usage
+**strictement local** (`localhost`). Ne l'expose pas sur un réseau public en l'état.
 
 ---
 

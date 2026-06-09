@@ -5,8 +5,12 @@
 // Grâce au proxy défini dans vite.config.js, "/api" pointe vers le backend
 // sur le port 8000 — on n'a pas à écrire l'URL complète.
 
-export async function getOffers(status = "new") {
-  const response = await fetch(`/api/offers?status=${status}`);
+export async function getOffers(status = "new", includeSuspicious = false) {
+  const params = new URLSearchParams({
+    status,
+    include_suspicious: includeSuspicious,
+  });
+  const response = await fetch(`/api/offers?${params}`);
   if (!response.ok) {
     throw new Error(`Erreur API (${response.status})`);
   }
@@ -54,10 +58,19 @@ export function applyToOffer(id, notes = "") {
   return sendJson(`/api/offers/${id}/apply`, "POST", { notes });
 }
 
-// Ignorer une offre → PATCH /api/offers/{id}/status
-// On change juste son statut en "skipped".
+// Change le statut d'une offre → PATCH /api/offers/{id}/status
+// Statuts acceptés par le backend : "new", "seen", "skipped".
+export function updateOfferStatus(id, status) {
+  return sendJson(`/api/offers/${id}/status`, "PATCH", { status });
+}
+
+// Raccourcis lisibles construits sur la fonction générique ci-dessus.
 export function skipOffer(id) {
-  return sendJson(`/api/offers/${id}/status`, "PATCH", { status: "skipped" });
+  return updateOfferStatus(id, "skipped");
+}
+
+export function unskipOffer(id) {
+  return updateOfferStatus(id, "new");
 }
 
 // Lancer une récupération d'offres → POST /api/fetch

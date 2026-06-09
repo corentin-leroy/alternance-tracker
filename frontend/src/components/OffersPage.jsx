@@ -1,7 +1,5 @@
-// Écran "Offres" : récupération, liste, actions Postuler/Ignorer.
-// C'est exactement le code qui était dans App.jsx — on l'a juste sorti dans son
-// propre composant pour que App puisse basculer entre plusieurs écrans.
-// (Les chemins d'import gagnent un "../" car on est descendu d'un dossier.)
+// Écran "Offres" : filtres, liste (via le composant OfferCard), actions
+// Postuler/Ignorer avec confirmation (toast) et annulation de l'ignorance.
 
 import { useEffect, useState } from "react";
 
@@ -10,7 +8,17 @@ import {
   fetchOffers,
   getOffers,
   skipOffer,
+  unskipOffer,
 } from "../api/client.js";
+import OfferCard from "./OfferCard.jsx";
+
+// Options du filtre de statut. Les libellés sont en français, la valeur est
+// celle attendue par l'API.
+const STATUS_OPTIONS = [
+  { value: "new", label: "Nouvelles" },
+  { value: "seen", label: "Vues" },
+  { value: "skipped", label: "Ignorées" },
+];
 
 export default function OffersPage() {
   const [offers, setOffers] = useState([]);
@@ -18,17 +26,42 @@ export default function OffersPage() {
   const [fetching, setFetching] = useState(false);
   const [error, setError] = useState(null);
 
-  async function loadOffers() {
-    const data = await getOffers("new");
-    setOffers(data);
+  // Filtres : quel statut afficher, et faut-il inclure les offres suspectes.
+  const [statusFilter, setStatusFilter] = useState("new");
+  const [includeSuspicious, setIncludeSuspicious] = useState(false);
+
+  // Toast : petit message temporaire. { message, onUndo? }. onUndo est une
+  // fonction optionnelle ; si présente, on affiche un bouton "Annuler".
+  const [toast, setToast] = useState(null);
+
+  function showToast(message, onUndo = null) {
+    setToast({ message, onUndo });
+    // Disparaît tout seul après 5 secondes.
+    window.setTimeout(() => setToast(null), 5000);
   }
 
+  // Recharge la liste selon les filtres courants. Appelée au montage, à chaque
+  // changement de filtre, et après une récupération d'offres.
+  async function loadOffers() {
+    setLoading(true);
+    try {
+      const data = await getOffers(statusFilter, includeSuspicious);
+      setOffers(data);
+      setError(null);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // Les dépendances [statusFilter, includeSuspicious] : React relance cet effet
+  // dès que l'un des deux change → la liste se recharge automatiquement quand
+  // on touche aux filtres. C'est la grande différence avec le tableau vide [].
   useEffect(() => {
-    loadOffers()
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+    loadOffers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [statusFilter, includeSuspicious]);
 
   function removeOffer(id) {
     setOffers((prev) => prev.filter((offer) => offer.id !== id));
@@ -38,6 +71,7 @@ export default function OffersPage() {
     try {
       await applyToOffer(offer.id);
       removeOffer(offer.id);
+      showToast("Candidature enregistrée ✓");
     } catch (err) {
       setError(err.message);
     }
@@ -47,6 +81,20 @@ export default function OffersPage() {
     try {
       await skipOffer(offer.id);
       removeOffer(offer.id);
+      // Toast avec une action d'annulation : on passe une fonction qui remettra
+      // l'offre en "new".
+      showToast("Offre ignorée", () => handleUndoSkip(offer));
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
+  async function handleUndoSkip(offer) {
+    try {
+      await unskipOffer(offer.id);
+      setToast(null);
+      await loadOffers(); // recharge pour que l'offre réapparaisse si pertinent
+      showToast("Ignorance annulée");
     } catch (err) {
       setError(err.message);
     }
@@ -56,8 +104,9 @@ export default function OffersPage() {
     setFetching(true);
     setError(null);
     try {
-      await fetchOffers();
+      const result = await fetchOffers();
       await loadOffers();
+      showToast(`${result.new_count} nouvelle(s) offre(s) récupérée(s)`);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -65,16 +114,12 @@ export default function OffersPage() {
     }
   }
 
-  if (loading) {
-    return <p className="status">Chargement des offres…</p>;
-  }
-
   return (
     <>
       <div className="header">
         <div>
           <h1>Offres d'alternance</h1>
-          <p className="subtitle">{offers.length} offre(s) à examiner</p>
+          <p className="subtitle">{offers.length} offre(s) affichée(s)</p>
         </div>
         <button className="btn btn-fetch" onClick={handleFetch} disabled={fetching}>
           {fetching ? (
@@ -88,40 +133,62 @@ export default function OffersPage() {
         </button>
       </div>
 
+      {/* Barre de filtres. Modifier un filtre met à jour son state, ce qui
+          déclenche le useEffect ci-dessus et recharge la liste. */}
+      <div className="filters">
+        <label>
+          Statut :{" "}
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+          >
+            {STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="checkbox">
+          <input
+            type="checkbox"
+            checked={includeSuspicious}
+            onChange={(e) => setIncludeSuspicious(e.target.checked)}
+          />
+          Afficher les offres suspectes
+        </label>
+      </div>
+
       {error && <p className="status error">Erreur : {error}</p>}
 
-      <ul className="offer-list">
-        {offers.map((offer) => (
-          <li key={offer.id} className="offer-card">
-            <div className="offer-header">
-              <h2>{offer.title}</h2>
-              {offer.suspicion_score >= 0.3 && (
-                <span className="badge">
-                  suspect {Math.round(offer.suspicion_score * 100)}%
-                </span>
-              )}
-            </div>
-            <p className="offer-meta">
-              {offer.company} · {offer.location} · {offer.source}
-            </p>
-            <p className="offer-desc">{offer.description.slice(0, 300)}</p>
+      {loading ? (
+        <p className="status">Chargement des offres…</p>
+      ) : offers.length === 0 ? (
+        <p className="subtitle">Aucune offre pour ce filtre.</p>
+      ) : (
+        <ul className="offer-list">
+          {offers.map((offer) => (
+            <OfferCard
+              key={offer.id}
+              offer={offer}
+              onApply={handleApply}
+              onSkip={handleSkip}
+            />
+          ))}
+        </ul>
+      )}
 
-            <div className="offer-actions">
-              <button className="btn btn-apply" onClick={() => handleApply(offer)}>
-                Postuler
-              </button>
-              <button className="btn btn-skip" onClick={() => handleSkip(offer)}>
-                Ignorer
-              </button>
-              {offer.url && (
-                <a href={offer.url} target="_blank" rel="noreferrer">
-                  Voir l'offre
-                </a>
-              )}
-            </div>
-          </li>
-        ))}
-      </ul>
+      {/* Le toast, affiché seulement s'il y a un message en cours. */}
+      {toast && (
+        <div className="toast">
+          <span>{toast.message}</span>
+          {toast.onUndo && (
+            <button className="toast-undo" onClick={toast.onUndo}>
+              Annuler
+            </button>
+          )}
+        </div>
+      )}
     </>
   );
 }

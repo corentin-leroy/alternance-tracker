@@ -83,6 +83,12 @@ export default function StatsPage() {
             {applications.map((app) => (
               <tr key={app.id}>
                 <td>{new Date(app.applied_at).toLocaleDateString("fr-FR")}</td>
+                <td>
+                  {app.offer_title || <span className="muted">offre supprimée</span>}
+                  {app.offer_company && (
+                    <span className="muted"> · {app.offer_company}</span>
+                  )}
+                </td>
                 <td>{app.notes || <span className="muted">—</span>}</td>
               </tr>
             ))}
