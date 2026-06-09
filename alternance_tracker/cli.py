@@ -56,7 +56,7 @@ def cmd_fetch(args):
             all_offers.extend(offers)
         except requests.exceptions.RequestException as e:
             console.print(f"  [red]Erreur réseau : {e}[/red]")
-        except EnvironmentError as e:
+        except (EnvironmentError, ImportError) as e:
             console.print(f"  [yellow]Configuration manquante : {e}[/yellow]")
         except Exception as e:
             console.print(f"  [red]Erreur : {e}[/red]")

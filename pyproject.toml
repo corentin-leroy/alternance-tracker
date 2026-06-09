@@ -12,7 +12,14 @@ dependencies = [
     "rich>=13.7",
     "python-dotenv>=1.0",
     "playwright>=1.44",
+    "playwright-stealth>=2.0",
     "beautifulsoup4>=4.12",
+]
+
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
 ]
 
 [project.scripts]

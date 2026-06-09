@@ -26,23 +26,57 @@ def _load_existing() -> dict[str, str]:
 def _geocode(city: str) -> Optional[dict]:
     try:
         resp = requests.get(
-            "https://nominatim.openstreetmap.org/search",
-            params={"q": f"{city}, France", "format": "json", "limit": 1, "addressdetails": 1},
-            headers={"User-Agent": "alternance-tracker-init/1.0"},
+            "https://api-adresse.data.gouv.fr/search/",
+            params={"q": city, "limit": 1, "type": "municipality"},
             timeout=10,
         )
-        results = resp.json()
-        if not results:
+        features = resp.json().get("features", [])
+        if not features:
             return None
-        r = results[0]
-        postcode = r.get("address", {}).get("postcode", "")
-        # Gestion des DOM (971, 972…) et codes normaux (38, 75…)
+        props = features[0]["properties"]
+        lon, lat = features[0]["geometry"]["coordinates"]
+        postcode = props.get("postcode", "")
         dept = ""
         if postcode and len(postcode) >= 2:
             dept = postcode[:3] if postcode[:2] in ("97", "98") else postcode[:2]
-        return {"lat": float(r["lat"]), "lon": float(r["lon"]), "department": dept}
+        return {"lat": lat, "lon": lon, "department": dept, "label": props.get("label", city)}
     except Exception:
         return None
+
+
+def _ask_int(label: str, default: int, min_val: int = 1, max_val: int = 9999) -> int:
+    while True:
+        raw = Prompt.ask(label, default=str(default)).strip()
+        try:
+            value = int(raw)
+            if min_val <= value <= max_val:
+                return value
+            console.print(f"[red]  Valeur hors limites ({min_val}–{max_val}).[/red]")
+        except ValueError:
+            console.print(f"[red]  Entrez un nombre entier (ex: {default}).[/red]")
+
+
+def _ask_nonempty(label: str, optional: bool = False, **kwargs) -> str:
+    suffix = " [dim](Entrée pour passer)[/dim]" if optional else ""
+    while True:
+        value = Prompt.ask(label + suffix, default="", **kwargs).strip()
+        if value:
+            return value
+        if optional:
+            return ""
+        console.print("[red]  Ce champ ne peut pas être vide.[/red]")
+
+
+def _ask_email(label: str, optional: bool = False) -> str:
+    suffix = " [dim](Entrée pour passer)[/dim]" if optional else ""
+    while True:
+        value = Prompt.ask(label + suffix, default="").strip()
+        if not value and optional:
+            return ""
+        parts = value.split("@")
+        if len(parts) == 2 and parts[0] and "." in parts[1]:
+            return value
+        console.print("[red]  Adresse e-mail invalide (ex: nom@domaine.fr).[/red]")
 
 
 def _validate_lba(api_key: str) -> tuple[bool, str]:
@@ -92,33 +126,34 @@ def _section_search(existing: dict) -> dict:
     console.print(Rule("[bold]1 / 4 — Paramètres de recherche[/bold]"))
     console.print("[dim]Définissent la zone géographique où chercher les offres.[/dim]\n")
 
-    city = Prompt.ask(
-        "Ville de recherche",
-        default=existing.get("SEARCH_CITY", "Grenoble"),
-    )
+    geo = None
+    while geo is None:
+        city = Prompt.ask(
+            "Ville de recherche",
+            default=existing.get("SEARCH_CITY", "Grenoble"),
+        ).strip()
+        if not city:
+            console.print("[red]  Veuillez entrer un nom de ville.[/red]")
+            continue
+        console.print(f"  [cyan]Géolocalisation de « {city} »…[/cyan] ", end="")
+        geo = _geocode(city)
+        if geo:
+            console.print(f"[green]✓[/green] {geo['label']}  (lat={geo['lat']:.4f}, lon={geo['lon']:.4f}, dept={geo['department']})")
+        else:
+            console.print("[yellow]Ville introuvable. Vérifiez l'orthographe et réessayez.[/yellow]")
 
-    console.print(f"  [cyan]Géolocalisation de « {city} »…[/cyan] ", end="")
-    geo = _geocode(city)
-    if geo:
-        console.print(f"[green]✓[/green] lat={geo['lat']:.4f}  lon={geo['lon']:.4f}")
-    else:
-        console.print("[yellow]introuvable, saisie manuelle requise[/yellow]")
-
-    default_lat = f"{geo['lat']:.6f}" if geo else existing.get("SEARCH_LATITUDE", "45.1885")
-    default_lon = f"{geo['lon']:.6f}" if geo else existing.get("SEARCH_LONGITUDE", "5.7245")
-    default_dept = geo["department"] if geo else existing.get("SEARCH_DEPARTMENT", "38")
-
-    lat = Prompt.ask("  Latitude", default=default_lat)
-    lon = Prompt.ask("  Longitude", default=default_lon)
-    dept = Prompt.ask("  Code département (ex: 38, 75, 69)", default=default_dept)
-    radius = Prompt.ask("  Rayon de recherche (km)", default=existing.get("SEARCH_RADIUS_KM", "30"))
+    try:
+        default_radius = int(existing.get("SEARCH_RADIUS_KM", "30"))
+    except ValueError:
+        default_radius = 30
+    radius = _ask_int("  Rayon de recherche (km)", default=default_radius, min_val=1, max_val=500)
 
     return {
         "SEARCH_CITY": city,
-        "SEARCH_LATITUDE": lat,
-        "SEARCH_LONGITUDE": lon,
-        "SEARCH_DEPARTMENT": dept,
-        "SEARCH_RADIUS_KM": radius,
+        "SEARCH_LATITUDE": f"{geo['lat']:.6f}",
+        "SEARCH_LONGITUDE": f"{geo['lon']:.6f}",
+        "SEARCH_DEPARTMENT": geo["department"],
+        "SEARCH_RADIUS_KM": str(radius),
     }
 
 
@@ -168,11 +203,15 @@ def _section_ft(existing: dict) -> dict:
         if not Confirm.ask("  Modifier ?", default=False):
             return {"FT_CLIENT_ID": existing["FT_CLIENT_ID"], "FT_CLIENT_SECRET": existing["FT_CLIENT_SECRET"]}
 
-    if not Confirm.ask("  Configurer France Travail ?", default=bool(has_existing)):
+    client_id = _ask_nonempty("  FT_CLIENT_ID", optional=True)
+    if not client_id:
+        console.print("[yellow]  Section France Travail désactivée.[/yellow]")
         return {"FT_CLIENT_ID": "", "FT_CLIENT_SECRET": ""}
 
-    client_id = Prompt.ask("  FT_CLIENT_ID").strip()
-    client_secret = Prompt.ask("  FT_CLIENT_SECRET", password=True).strip()
+    client_secret = _ask_nonempty("  FT_CLIENT_SECRET", optional=True, password=True)
+    if not client_secret:
+        console.print("[yellow]  Section France Travail désactivée.[/yellow]")
+        return {"FT_CLIENT_ID": "", "FT_CLIENT_SECRET": ""}
 
     console.print("  [cyan]Test des identifiants…[/cyan] ", end="")
     ok, err = _validate_ft(client_id, client_secret)
@@ -201,11 +240,16 @@ def _section_wttj(existing: dict) -> dict:
         if not Confirm.ask("  Modifier ?", default=False):
             return {"WTTJ_EMAIL": existing["WTTJ_EMAIL"], "WTTJ_PASSWORD": existing["WTTJ_PASSWORD"]}
 
-    if not Confirm.ask("  Configurer WTTJ ?", default=bool(has_existing)):
+    email = _ask_email("  WTTJ_EMAIL", optional=True)
+    if not email:
+        console.print("[yellow]  Section WTTJ désactivée.[/yellow]")
         return {"WTTJ_EMAIL": "", "WTTJ_PASSWORD": ""}
 
-    email = Prompt.ask("  WTTJ_EMAIL").strip()
-    password = Prompt.ask("  WTTJ_PASSWORD", password=True).strip()
+    password = _ask_nonempty("  WTTJ_PASSWORD", optional=True, password=True)
+    if not password:
+        console.print("[yellow]  Section WTTJ désactivée.[/yellow]")
+        return {"WTTJ_EMAIL": "", "WTTJ_PASSWORD": ""}
+
     console.print("[dim]  (Validation impossible sans Playwright — testée au prochain fetch)[/dim]")
 
     return {"WTTJ_EMAIL": email, "WTTJ_PASSWORD": password}
@@ -273,7 +317,7 @@ def run():
     console.print(Rule())
     console.print(f"[bold green]✓ .env écrit dans {ENV_PATH}[/bold green]\n")
 
-    active = ["[cyan]hellowork[/cyan] [dim](aucune clé)[/dim]"]
+    active = ["[cyan]hellowork[/cyan] [dim](nécessite Playwright)[/dim]"]
     if config.get("LBA_API_KEY"):
         active.append("[cyan]lba[/cyan]")
     if config.get("FT_CLIENT_ID") and config.get("FT_CLIENT_SECRET"):
